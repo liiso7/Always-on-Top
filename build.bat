@@ -20,8 +20,8 @@ echo [2/2] 正在打包程序...
 python -m PyInstaller --onefile ^
     --windowed ^
     --name "窗口置顶工具" ^
-    --icon "C:\Users\likaiyi\CodeBuddy\20260212132732\icon\push_pin_bfny858du3i2.ico" ^
-    --add-data "C:\Users\likaiyi\CodeBuddy\20260212132732\icon\push_pin_bfny858du3i2.ico;icon" ^
+    --icon "E:\My_github\Always-on-Top\icon\app_icon.ico" ^
+    --add-data "E:\My_github\Always-on-Top\icon\app_icon.ico;icon" ^
     main.py
 
 if %errorlevel% neq 0 (

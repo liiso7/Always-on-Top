@@ -1,4 +1,4 @@
-('C:\\Users\\likaiyi\\CodeBuddy\\20260212132732\\build\\窗口置顶工具\\PYZ-00.pyz',
+('E:\\My_github\\Always-on-Top\\build\\窗口置顶工具\\PYZ-00.pyz',
  [('__future__', 'C:\\Python314\\Lib\\__future__.py', 'PYMODULE'),
   ('_ast_unparse', 'C:\\Python314\\Lib\\_ast_unparse.py', 'PYMODULE'),
   ('_colorize', 'C:\\Python314\\Lib\\_colorize.py', 'PYMODULE'),

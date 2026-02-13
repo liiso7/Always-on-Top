@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:\\Users\\likaiyi\\CodeBuddy\\20260212132732\\icon\\push_pin_bfny858du3i2.ico', 'icon')],
+    datas=[('E:\\My_github\\Always-on-Top\\icon\\app_icon.ico', 'icon')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['C:\\Users\\likaiyi\\CodeBuddy\\20260212132732\\icon\\push_pin_bfny858du3i2.ico'],
+    icon=['E:\\My_github\\Always-on-Top\\icon\\app_icon.ico'],
 )
