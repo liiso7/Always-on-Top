@@ -270,11 +270,61 @@ class SettingsDialog:
         self.key_var = None
         self.hotkey_preview_label = None
         
+        # 1. 先创建对话框，立即隐藏（核心：最早时机隐藏）
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.withdraw()  # 第一步就隐藏，避免任何空窗口闪烁
+        self.dialog.title("设置")
+        
+        # 2. 设置窗口图标（提前设置，避免后续重绘）
+        icon_path = get_resource_path(os.path.join("icon", "app_icon.ico"))
+        if os.path.exists(icon_path):
+            try:
+                self.dialog.iconbitmap(icon_path)
+            except Exception as e:
+                print(f"设置对话框图标失败: {e}")
+
+        # 3. 先设置模态属性（提前绑定父窗口，减少后续操作）
+        self.dialog.transient(parent)  # 绑定到父窗口
+        self.dialog.grab_set()         # 设置模态，提前生效
+
+        # 4. 窗口属性设置（一次性完成，减少重绘）
+        dialog_width = 400
+        dialog_height = 350
+        # 先计算位置，再一次性设置 geometry（避免多次修改）
+        self.dialog.update_idletasks()  # 先更新空闲任务，获取准确的屏幕尺寸
+        x = (self.dialog.winfo_screenwidth() // 2) - (dialog_width // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (dialog_height // 2)
+        # 一次性设置尺寸+位置，只触发一次重绘
+        self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        # 一次性设置大小限制，避免多次修改窗口属性
+        self.dialog.resizable(True, True)
+        self.dialog.minsize(400, 350)
+
+        # 5. 加载所有UI控件（此时窗口仍隐藏，无闪烁）
+        self.setup_ui()
+
+        # 6. 关键：执行所有待处理的渲染任务（控件布局、尺寸计算）
+        self.dialog.update_idletasks()
+
+        # 7. 最后显示窗口（此时所有内容已加载完成）
+        self.dialog.deiconify()
+    
+    """ 
+    def __init__(self, parent, config_manager, on_hotkey_changed):
+        self.parent = parent
+        self.config_manager = config_manager
+        self.on_hotkey_changed = on_hotkey_changed
+        
+        # 初始化实例变量
+        self.modifier1_var = None
+        self.modifier2_var = None
+        self.key_var = None
+        self.hotkey_preview_label = None
+        
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("设置")
         
-        # 先隐藏窗口，防止闪烁
-        self.dialog.withdraw()
+       
         
         # 设置窗口图标
         icon_path = get_resource_path(os.path.join("icon", "app_icon.ico"))
@@ -283,6 +333,12 @@ class SettingsDialog:
                 self.dialog.iconbitmap(icon_path)
             except Exception as e:
                 print(f"设置对话框图标失败: {e}")
+
+        # 先隐藏窗口，防止闪烁
+        self.dialog.withdraw()
+
+         # 设置界面
+        self.setup_ui()
 
         # 计算居中位置并先设置窗口大小和位置
         dialog_width = 400
@@ -293,15 +349,14 @@ class SettingsDialog:
         self.dialog.resizable(True, True)
         self.dialog.minsize(400, 350)
 
-        # 设置界面
-        self.setup_ui()
-
-        # 显示窗口
-        self.dialog.deiconify()
-
         # 设置为模态对话框
         self.dialog.transient(parent)
         self.dialog.grab_set()
+
+        # 显示窗口
+        self.dialog.deiconify()
+"""
+
     
     def setup_ui(self):
         """设置界面"""
@@ -522,10 +577,8 @@ class SettingsDialog:
 class TopMostApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("窗口置顶工具")
-        self.root.geometry("650x400")
-        self.root.minsize(650, 400)
-        
+        self.root.withdraw() # 隐藏窗口
+
         # 设置窗口图标
         icon_path = get_resource_path(os.path.join("icon", "app_icon.ico"))
         if os.path.exists(icon_path):
@@ -533,32 +586,46 @@ class TopMostApp:
                 self.root.iconbitmap(icon_path)
             except Exception as e:
                 print(f"设置图标失败: {e}")
-        
+
+        self.root.title("窗口置顶工具")
+
+        root_width  = 650
+        root_height = 400
+
+        # 先计算位置，再一次性设置 geometry（避免多次修改）
+        self.root.update_idletasks()  # 先更新空闲任务，获取准确的屏幕尺寸
+        x = (self.root.winfo_screenwidth() // 2) - (root_width // 2)
+        y = (self.root.winfo_screenheight() // 2) - (root_height // 2)
+        # 一次性设置尺寸+位置，只触发一次重绘
+        self.root.geometry(f"{root_width}x{root_height}+{x}+{y}")
+
+        self.root.minsize(650, 400)
+
         # 初始化配置管理器
         self.config_manager = ConfigManager()
-        
+
         # 设置样式
         style = ttk.Style()
         style.configure("Treeview", rowheight=25)
         style.configure("Bold.TLabel", font=("微软雅黑", 10, "bold"))
-        
+
+        # 设置界面
         self.setup_ui()
 
-        # self.center_dialog()
-            
-        # 启动快捷键监听
-        self.hotkey_listener = HotkeyListener(self.on_hotkey_triggered, self.config_manager)
-        self.hotkey_listener.start()
-        
+
         # 初始刷新
         self.refresh_list()
 
-    def center_dialog(self):
-        """将对话框居中显示"""
-        self.root.update()
-        x = (self.root.winfo_screenwidth() // 2) - (self.root.winfo_width() // 2)
-        y = (self.root.winfo_screenheight() // 2) - (self.root.winfo_height() // 2)
-        self.root.geometry(f"+{x}+{y}")
+                # 6. 关键：执行所有待处理的渲染任务（控件布局、尺寸计算）
+        self.root.update_idletasks()
+
+        # 7. 最后显示窗口（此时所有内容已加载完成）
+        self.root.deiconify()
+
+        # 启动快捷键监听
+        self.hotkey_listener = HotkeyListener(self.on_hotkey_triggered, self.config_manager)
+        self.hotkey_listener.start()
+
 
     def setup_ui(self):
         # 主容器
