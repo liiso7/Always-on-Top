@@ -5,10 +5,21 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
 import time
-from ctypes import windll, byref, c_int, c_void_p, Structure
+from ctypes import windll, byref, c_int, c_void_p, Structure, c_wchar_p, c_uint, c_byte
 import json
 import os
 import sys
+
+
+# 定义 RECT 结构
+class RECT(Structure):
+    _fields_ = [
+        ('left', c_int),
+        ('top', c_int),
+        ('right', c_int),
+        ('bottom', c_int)
+    ]
+
 
 def get_resource_path(relative_path):
     """获取资源的绝对路径，兼容 PyInstaller"""
@@ -115,6 +126,234 @@ class WindowUtils:
                 
         except Exception:
             pass
+
+class OverlayWindow:
+    """悬浮标记窗口，用于显示置顶状态"""
+
+    _class_registered = False  # 类变量，跟踪窗口类是否已注册
+
+    def __init__(self, icon_path):
+        self.icon_path = icon_path
+        self.hwnd = None
+        self.target_hwnd = None
+        self.visible = False
+        self.running = False
+        self.thread = None
+
+        # 加载图标（32x32）
+        if icon_path and os.path.exists(icon_path):
+            self.h_icon = windll.user32.LoadImageW(
+                None,
+                c_wchar_p(icon_path),
+                win32con.IMAGE_ICON,
+                32, 32,  # 32x32图标
+                win32con.LR_LOADFROMFILE
+            )
+        else:
+            self.h_icon = None
+
+        # 只注册一次窗口类
+        if not OverlayWindow._class_registered:
+            try:
+                wc = win32gui.WNDCLASS()
+                wc.hInstance = windll.kernel32.GetModuleHandleW(None)
+                wc.lpszClassName = "TopMostOverlay"
+                wc.lpfnWndProc = lambda hwnd, msg, wparam, lparam: win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+                wc.hCursor = windll.user32.LoadCursorW(0, win32con.IDC_ARROW)
+                wc.hbrBackground = win32gui.GetStockObject(win32con.NULL_BRUSH)
+
+                # 使用RegisterClass而不是RegisterClassW
+                win32gui.RegisterClass(wc)
+                OverlayWindow._class_registered = True
+            except Exception as e:
+                OverlayWindow._class_registered = True
+
+        self.create_window()
+
+    def create_window(self):
+        """创建悬浮窗口"""
+        try:
+            # 创建无边框、始终置顶的窗口
+            # 移除 WS_EX_LAYERED，因为我们不需要透明
+            ex_style = win32con.WS_EX_TOPMOST | win32con.WS_EX_TOOLWINDOW
+            hinstance = windll.kernel32.GetModuleHandleW(None)
+
+            self.hwnd = win32gui.CreateWindowEx(
+                ex_style,
+                "TopMostOverlay",  # 直接使用类名字符串
+                "TopMostOverlay",
+                win32con.WS_POPUP,
+                100, 100, 32, 32,  # 初始位置和大小（32x32图标）
+                0,
+                0,
+                hinstance,
+                None
+            )
+
+            if not self.hwnd:
+                return
+
+            # 显示窗口
+            win32gui.ShowWindow(self.hwnd, win32con.SW_SHOW)
+
+        except Exception as e:
+            print(f"[OverlayWindow] 创建悬浮窗口失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def draw_icon(self):
+        """在窗口中绘制图标"""
+        if not self.hwnd:
+            return
+
+        try:
+            # 获取窗口设备上下文
+            hdc = win32gui.GetDC(self.hwnd)
+            if not hdc or hdc == 0:
+                return
+
+            try:
+                # 直接绘制图标（不绘制背景，测试图标是否可见）
+                if self.h_icon:
+                    windll.user32.DrawIconEx(
+                        hdc, 0, 0, self.h_icon,
+                        32, 32, 0, None, win32con.DI_NORMAL
+                    )
+            finally:
+                win32gui.ReleaseDC(self.hwnd, hdc)
+
+        except Exception as e:
+            print(f"[OverlayWindow] 绘制图标失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def show(self, target_hwnd):
+        """显示标记窗口"""
+        self.target_hwnd = target_hwnd
+        self.visible = True
+
+        if self.hwnd:
+            try:
+                # 更新位置
+                self.update_position()
+
+                # 显示窗口
+                win32gui.ShowWindow(self.hwnd, win32con.SW_SHOW)
+
+                # 确保窗口在前台
+                win32gui.SetWindowPos(
+                    self.hwnd,
+                    win32con.HWND_TOPMOST,
+                    0, 0, 0, 0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+                )
+
+                # 绘制图标
+                if self.h_icon:
+                    self.draw_icon()
+            except Exception as e:
+                print(f"[OverlayWindow.show] 显示失败: {e}")
+                import traceback
+                traceback.print_exc()
+
+    def hide(self):
+        """隐藏标记窗口"""
+        self.visible = False
+        self.target_hwnd = None
+
+        if self.hwnd:
+            win32gui.ShowWindow(self.hwnd, win32con.SW_HIDE)
+
+    def update_position(self):
+        """更新标记窗口位置，使其跟随目标窗口"""
+        if not self.target_hwnd or not self.hwnd:
+            return
+
+        try:
+            # 检查目标窗口是否仍然存在
+            if not win32gui.IsWindow(self.target_hwnd):
+                return
+
+            # 检查目标窗口是否可见
+            if not win32gui.IsWindowVisible(self.target_hwnd):
+                return
+
+            # 获取目标窗口位置
+            rect = win32gui.GetWindowRect(self.target_hwnd)
+            if rect:
+                # 计算边框中间位置（32x32图标）
+                window_width = rect[2] - rect[0]
+                x = rect[0] + (window_width // 2) - 16  # 32x32图标的一半
+                y = rect[1] - 28  # 在窗口上边框上
+
+                # 移动窗口
+                win32gui.SetWindowPos(
+                    self.hwnd,
+                    win32con.HWND_TOPMOST,
+                    x, y, 32, 32,
+                    win32con.SWP_NOACTIVATE | win32con.SWP_SHOWWINDOW
+                )
+        except Exception as e:
+            print(f"[OverlayWindow.update_position] 更新位置失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def destroy(self):
+        """销毁悬浮窗口"""
+        self.hide()
+        self.running = False
+        if self.hwnd:
+            win32gui.DestroyWindow(self.hwnd)
+
+    def start_tracking(self):
+        """开始跟踪目标窗口位置"""
+        self.running = True
+        self.thread = threading.Thread(target=self._tracking_loop, daemon=True)
+        self.thread.start()
+
+    def _tracking_loop(self):
+        """跟踪循环"""
+        while self.running and self.visible:
+            try:
+                time.sleep(0.005)  # 每5毫秒更新一次（200fps）
+                self.update_position()
+            except Exception:
+                break
+
+
+class OverlayManager:
+    """管理多个悬浮标记窗口"""
+
+    def __init__(self, icon_path):
+        self.icon_path = icon_path
+        self.overlays = {}  # {hwnd: OverlayWindow}
+        self.lock = threading.Lock()
+
+    def show_overlay(self, hwnd):
+        """为指定窗口显示标记"""
+        with self.lock:
+            if hwnd not in self.overlays:
+                overlay = OverlayWindow(self.icon_path)
+                if overlay.hwnd:  # 检查窗口是否创建成功
+                    overlay.show(hwnd)
+                    overlay.start_tracking()
+                    self.overlays[hwnd] = overlay
+
+    def hide_overlay(self, hwnd):
+        """隐藏指定窗口的标记"""
+        with self.lock:
+            if hwnd in self.overlays:
+                overlay = self.overlays[hwnd]
+                overlay.destroy()
+                del self.overlays[hwnd]
+
+    def hide_all(self):
+        """隐藏所有标记"""
+        with self.lock:
+            for hwnd in list(self.overlays.keys()):
+                overlay = self.overlays[hwnd]
+                overlay.destroy()
+                del self.overlays[hwnd]
 
 # --- 配置管理模块 ---
 
@@ -618,6 +857,10 @@ class TopMostApp:
         # 设置界面
         self.setup_ui()
 
+        # 初始化悬浮标记管理器
+        icon_path = get_resource_path(os.path.join("icon", "app_icon.ico"))
+        self.overlay_manager = OverlayManager(icon_path)
+
 
         # 初始刷新
         self.refresh_list()
@@ -631,6 +874,9 @@ class TopMostApp:
         # 启动快捷键监听
         self.hotkey_listener = HotkeyListener(self.on_hotkey_triggered, self.config_manager)
         self.hotkey_listener.start()
+
+        # 注册退出处理
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
 
     def setup_ui(self):
@@ -734,11 +980,17 @@ class TopMostApp:
         new_state = not is_top
         
         if WindowUtils.set_window_topmost(hwnd, new_state):
+            # 显示/隐藏悬浮标记
+            if new_state:
+                self.overlay_manager.show_overlay(hwnd)
+            else:
+                self.overlay_manager.hide_overlay(hwnd)
+
             # 播放效果
             WindowUtils.show_effect(hwnd, 'pin' if new_state else 'unpin')
             # 刷新列表显示
             self.refresh_list()
-            
+
             # 在底部状态栏显示结果（可选）
             state_str = "置顶" if new_state else "取消置顶"
             print(f"已{state_str}: {title}")
@@ -751,7 +1003,16 @@ class TopMostApp:
             # refresh_list 包含 GUI 操作，建议使用 after
             # toggle_window_state 主要是 win32 api 调用，比较安全，但为了刷新列表，还是用 after
             self.root.after(0, lambda: self.toggle_window_state(hwnd, win32gui.GetWindowText(hwnd)))
-    
+
+    def on_closing(self):
+        """程序退出时的清理工作"""
+        # 隐藏所有悬浮标记
+        self.overlay_manager.hide_all()
+        # 停止快捷键监听
+        self.hotkey_listener.stop()
+        # 销毁主窗口
+        self.root.destroy()
+
     def open_settings(self):
         """打开设置对话框"""
         SettingsDialog(self.root, self.config_manager, self.on_hotkey_settings_changed)
