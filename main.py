@@ -119,8 +119,14 @@ class WindowUtils:
 # --- 配置管理模块 ---
 
 class ConfigManager:
-    def __init__(self, config_file='./config/config.json'):
-        self.config_file = config_file
+    def __init__(self):
+        # 使用绝对路径，确保配置文件位置正确
+        base_path = os.path.abspath('.')
+        self.config_file = os.path.join(base_path, 'config', 'config.json')
+        # 确保config目录存在
+        config_dir = os.path.dirname(self.config_file)
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
         self.config = self.load_config()
     
     def load_config(self):
